@@ -13,4 +13,13 @@ Confirmed (non-negated) diagnoses are mapped to ICD-10 codes with confidence sco
 ## The code is organized into three clean layers: Data layer, NLP layer, Rendering layer 
 
 # Data layer 
-<DIAGNOSES>
+DIAGNOSES, MEDICATIONS, PROCEDURES are plain arrays/objects that act as your clinical lexicon. Swap these out with a real UMLS or SNOMED backed dictionary and the rest of the pipeline doesn't change 
+
+# NLP layer 
+3 functions doing the actual work: 
+- findSpans() - term matching with character level position tracking
+- isNegated() - 60 char lookback window checked against NEGATION_CUES
+- extractEntities() - orchestrates both, then sorts and deduplicates overlapping matchees with a greedy cursor
+
+# Rendering layer 
+Pure functions such as buildAnnotatedHtml(), buildEntityHtml(), buildIcdHtml() are pure functions that take spans and return HTML strings, keeping display logic fully separate from NLP logic. 
