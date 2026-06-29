@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clinical NLP Pipeline Demo</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f0; color: #1a1a18; padding: 24px; font-size: 15px; }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #888; margin-bottom: 16px; }
+  .legend-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #666; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot-dx   { background: #185FA5; }
+  .dot-med  { background: #0F6E56; }
+  .dot-proc { background: #BA7517; }
+  .dot-neg  { background: #A32D2D; }
+  .panel { background: #fff; border: 1px solid #e0e0d8; border-radius: 12px; padding: 16px 20px; }
+  .panel-label { font-size: 11px; font-weight: 500; color: #aaa; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+  textarea { width: 100%; min-height: 180px; resize: vertical; font-size: 13px; font-family: 'Courier New', monospace; line-height: 1.6; border: 1px solid #ddd; border-radius: 8px; padding: 10px; background: #fafaf8; color: #1a1a18; outline: none; }
+  textarea:focus { border-color: #185FA5; }
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .run-btn { background: #185FA5; color: #fff; border: none; border-radius: 8px; padding: 8px 18px; font-size: 14px; font-weight: 500; cursor: pointer; }
+  .run-btn:hover { background: #0C447C; }
+  .clear-btn, .sample-btn { background: transparent; color: #555; border: 1px solid #ccc; border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  .clear-btn:hover, .sample-btn:hover { background: #f0f0ec; }
+  .sample-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+  .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+  .stat-card { background: #f5f5f0; border-radius: 8px; padding: 10px 12px; text-align: center; }
+  .stat-num { font-size: 22px; font-weight: 500; }
+  .stat-lbl { font-size: 11px; color: #888; margin-top: 2px; }
+  .annotated { line-height: 2.2; font-size: 13px; font-family: 'Courier New', monospace; color: #1a1a18; }
+  mark.dx   { background: #B5D4F4; color: #042C53; border-radius: 3px; padding: 1px 3px; }
+  mark.med  { background: #9FE1CB; color: #04342C; border-radius: 3px; padding: 1px 3px; }
+  mark.proc { background: #FAC775; color: #412402; border-radius: 3px; padding: 1px 3px; }
+  mark.neg  { background: #F7C1C1; color: #501313; border-radius: 3px; padding: 1px 3px; text-decoration: line-through; }
+  .entity-tag { display: inline-flex; align-items: center; gap: 5px; border-radius: 4px; padding: 3px 8px; font-size: 13px; font-weight: 500; margin: 3px 2px; }
+  .tag-dx   { background: #E6F1FB; color: #0C447C; }
+  .tag-med  { background: #E1F5EE; color: #085041; }
+  .tag-proc { background: #FAEEDA; color: #633806; }
+  .tag-neg  { background: #FCEBEB; color: #791F1F; text-decoration: line-through; opacity: 0.75; }
+  .neg-badge { font-size: 10px; background: #FCEBEB; color: #A32D2D; border-radius: 3px; padding: 1px 5px; margin-left: 4px; text-decoration: none; }
+  .icd-row { display: flex; align-items: center; padding: 7px 0; border-bottom: 1px solid #f0f0ec; font-size: 13px; gap: 8px; }
+  .icd-row:last-child { border-bottom: none; }
+  .icd-code { font-family: 'Courier New', monospace; font-size: 12px; font-weight: 500; background: #f5f5f0; border: 1px solid #ddd; border-radius: 4px; padding: 2px 6px; color: #555; white-space: nowrap; }
+  .icd-desc { color: #1a1a18; flex: 1; }
+  .icd-conf { font-size: 11px; color: #888; white-space: nowrap; }
+  .conf-bar-wrap { display: inline-block; width: 48px; height: 4px; background: #e8e8e4; border-radius: 2px; overflow: hidden; vertical-align: middle; margin-left: 5px; }
+  .conf-bar { height: 100%; background: #185FA5; border-radius: 2px; }
+  #results-area { display: none; }
+  #empty-state { display: none; text-align: center; padding: 2rem; color: #aaa; font-size: 14px; }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>Clinical NLP Pipeline</h1>
+<p class="subtitle">NER · negation detection · ICD-10 mapping — paste a physician note and run the pipeline</p>
+
+<div class="legend-row">
+  <span class="legend-item"><span class="dot dot-dx"></span>Diagnosis</span>
+  <span class="legend-item"><span class="dot dot-med"></span>Medication</span>
+  <span class="legend-item"><span class="dot dot-proc"></span>Procedure</span>
+  <span class="legend-item"><span class="dot dot-neg"></span>Negated</span>
+</div>
+
+<div class="panel" style="margin-bottom:14px;">
+  <div class="panel-label">Physician note input</div>
+  <textarea id="note-input" placeholder="Paste or type a clinical note here..."></textarea>
+  <div style="font-size:12px; color:#aaa; margin-top:8px;">Load a sample:</div>
+  <div class="sample-row">
+    <button class="sample-btn" onclick="loadSample('cardio')">Cardiology note</button>
+    <button class="sample-btn" onclick="loadSample('diabetes')">Diabetes note</button>
+    <button class="sample-btn" onclick="loadSample('complex')">Complex multi-dx</button>
+  </div>
+  <div class="btn-row">
+    <button class="run-btn" onclick="runNLP()">&#9654; Run NLP pipeline</button>
+    <button class="clear-btn" onclick="clearAll()">Clear</button>
+  </div>
+</div>
+
+<div id="results-area">
+  <div class="stat-row">
+    <div class="stat-card"><div class="stat-num" id="stat-dx">0</div><div class="stat-lbl">Diagnoses</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-med">0</div><div class="stat-lbl">Medications</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-proc">0</div><div class="stat-lbl">Procedures</div></div>
+  </div>
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-label">Annotated note</div>
+      <div class="annotated" id="annotated-text"></div>
+    </div>
+    <div>
+      <div class="panel" style="margin-bottom:14px;">
+        <div class="panel-label">Extracted entities</div>
+        <div id="entity-list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-label">ICD-10 suggestions</div>
+        <div id="icd-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="empty-state">No clinical entities detected. Try a more detailed note.</div>
+
+<script>
+// ─── Sample notes ─────────────────────────────────────────────────────────────
+const SAMPLES = {
+  cardio: `Patient is a 68-year-old male presenting with chest pain and shortness of breath. Past medical history significant for hypertension, hyperlipidemia, and type 2 diabetes mellitus. No history of myocardial infarction. Current medications include metoprolol 50mg daily, atorvastatin 40mg at bedtime, and lisinopril 10mg daily. EKG was performed showing normal sinus rhythm. Patient denies cocaine use. Echocardiogram ordered. Assessment: Stable angina, rule out ACS. No evidence of heart failure.`,
+  diabetes: `55-year-old female with longstanding type 2 diabetes mellitus, poorly controlled. HbA1c 9.2%. No history of diabetic ketoacidosis. Patient reports no chest pain. She takes metformin 1000mg twice daily and insulin glargine 30 units nightly. CBC and comprehensive metabolic panel drawn. Urinalysis ordered to evaluate for diabetic nephropathy. BMI 34.2, patient counseled on weight loss. Started on semaglutide 0.25mg weekly. Fundoscopic exam deferred.`,
+  complex: `72-year-old female with COPD, chronic kidney disease stage 3, and atrial fibrillation on anticoagulation. No history of stroke or TIA. Medications: apixaban 5mg twice daily, tiotropium inhaler daily, budesonide/formoterol inhaler twice daily, and amlodipine 5mg daily. Spirometry performed. Chest X-ray completed showing no acute infiltrate. Patient denies hemoptysis. Creatinine 1.8, eGFR 38. No acute exacerbation of COPD noted today. Echocardiogram and renal ultrasound pending.`
+};
+
+// ─── Clinical entity lexicon ───────────────────────────────────────────────────
+const DIAGNOSES = [
+  { terms: ['hypertension','htn'],                                    icd: 'I10',    desc: 'Essential (primary) hypertension',                         conf: 97 },
+  { terms: ['type 2 diabetes mellitus','type 2 diabetes','diabetes mellitus','t2dm'], icd: 'E11.9',  desc: 'Type 2 diabetes mellitus without complications',         conf: 95 },
+  { terms: ['hyperlipidemia','hypercholesterolemia'],                  icd: 'E78.5',  desc: 'Hyperlipidemia, unspecified',                               conf: 92 },
+  { terms: ['atrial fibrillation','afib','a-fib'],                    icd: 'I48.91', desc: 'Unspecified atrial fibrillation',                           conf: 96 },
+  { terms: ['stable angina'],                                         icd: 'I20.9',  desc: 'Angina pectoris, unspecified',                              conf: 88 },
+  { terms: ['chest pain'],                                            icd: 'R07.9',  desc: 'Chest pain, unspecified',                                   conf: 80 },
+  { terms: ['shortness of breath'],                                   icd: 'R06.09', desc: 'Dyspnea, unspecified',                                      conf: 82 },
+  { terms: ['myocardial infarction'],                                 icd: 'I21.9',  desc: 'Acute myocardial infarction, unspecified',                  conf: 94 },
+  { terms: ['heart failure'],                                         icd: 'I50.9',  desc: 'Heart failure, unspecified',                                conf: 91 },
+  { terms: ['acs','acute coronary syndrome'],                         icd: 'I24.9',  desc: 'Acute ischaemic heart disease, unspecified',                conf: 85 },
+  { terms: ['copd','chronic obstructive pulmonary disease'],          icd: 'J44.1',  desc: 'COPD with (acute) exacerbation',                           conf: 90 },
+  { terms: ['chronic kidney disease stage 3','ckd stage 3','ckd'],   icd: 'N18.3',  desc: 'Chronic kidney disease, stage 3',                          conf: 89 },
+  { terms: ['diabetic nephropathy'],                                  icd: 'N08',    desc: 'Glomerular disorders in diseases classified elsewhere',     conf: 86 },
+  { terms: ['stroke'],                                                icd: 'I63.9',  desc: 'Cerebral infarction, unspecified',                         conf: 91 },
+  { terms: ['tia','transient ischemic attack'],                       icd: 'G45.9',  desc: 'Transient cerebral ischaemia, unspecified',                conf: 90 },
+  { terms: ['hemoptysis'],                                            icd: 'R04.2',  desc: 'Haemoptysis',                                              conf: 88 },
+  { terms: ['diabetic ketoacidosis','dka'],                           icd: 'E11.10', desc: 'Type 2 diabetes mellitus with ketoacidosis',               conf: 93 },
+];
+
+const MEDICATIONS = [
+  'metoprolol','atorvastatin','lisinopril','metformin','insulin glargine',
+  'semaglutide','apixaban','tiotropium','budesonide','formoterol',
+  'amlodipine','warfarin','aspirin','hydrochlorothiazide','losartan'
+];
+
+const PROCEDURES = [
+  { terms: ['ekg','electrocardiogram'],               label: 'EKG' },
+  { terms: ['echocardiogram'],                        label: 'Echocardiogram' },
+  { terms: ['spirometry'],                            label: 'Spirometry' },
+  { terms: ['chest x-ray','chest xray'],              label: 'Chest X-ray' },
+  { terms: ['cbc'],                                   label: 'CBC' },
+  { terms: ['comprehensive metabolic panel','cmp'],   label: 'CMP' },
+  { terms: ['urinalysis'],                            label: 'Urinalysis' },
+  { terms: ['fundoscopic exam'],                      label: 'Fundoscopic exam' },
+  { terms: ['renal ultrasound'],                      label: 'Renal ultrasound' },
+  { terms: ['hba1c'],                                 label: 'HbA1c' },
+];
+
+// Negation cue phrases — checked within the same sentence as the entity only
+const NEGATION_CUES = [
+  'no history of','no evidence of','denies','no acute','rule out',
+  'negative for','not present','without','no '
+];
+
+// ─── Core NLP functions ────────────────────────────────────────────────────────
+
+/**
+ * Split text into sentences by period, exclamation, question mark, or newline.
+ * Returns array of { text, start } objects so we can map sentence positions
+ * back to character offsets in the original note.
+ */
+function splitSentences(text) {
+  const sentences = [];
+  const re = /[^.!?\n]+[.!?\n]*/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    sentences.push({ text: match[0], start: match.index });
+  }
+  // Catch any trailing text without terminal punctuation
+  const lastEnd = sentences.length
+    ? sentences[sentences.length - 1].start + sentences[sentences.length - 1].text.length
+    : 0;
+  if (lastEnd < text.length) {
+    sentences.push({ text: text.substring(lastEnd), start: lastEnd });
+  }
+  return sentences;
+}
+
+/**
+ * Check whether an entity match is negated.
+ * Scopes the negation cue search to the same sentence as the match,
+ * and only looks at text BEFORE the match within that sentence.
+ * This prevents a "no " in one sentence from bleeding into the next.
+ */
+function isNegated(lowerText, matchStart, sentences) {
+  // Find which sentence contains this match
+  const sentence = sentences.find(s =>
+    matchStart >= s.start && matchStart < s.start + s.text.length
+  );
+  if (!sentence) return false;
+
+  // Only look back within the current sentence, up to the match position
+  const sentenceLower = sentence.text.toLowerCase();
+  const offsetInSentence = matchStart - sentence.start;
+  const lookback = sentenceLower.substring(0, offsetInSentence);
+
+  return NEGATION_CUES.some(cue => lookback.includes(cue));
+}
+
+/**
+ * Scan text for all occurrences of a term, returning span objects.
+ * Each span has { start, end, type, label, icd?, desc?, conf?, negated, display }
+ */
+function findSpans(note, lowerNote, terms, type, meta = {}, sentences) {
+  const spans = [];
+  for (const term of terms) {
+    let idx = 0;
+    while ((idx = lowerNote.indexOf(term, idx)) !== -1) {
+      spans.push({
+        start: idx,
+        end: idx + term.length,
+        type,
+        label: meta.label || terms[0],
+        icd: meta.icd || null,
+        desc: meta.desc || null,
+        conf: meta.conf || null,
+        negated: isNegated(lowerNote, idx, sentences),
+        display: note.substring(idx, idx + term.length)
+      });
+      idx += term.length;
+    }
+  }
+  return spans;
+}
+
+/**
+ * Main NLP pipeline:
+ * 1. Split note into sentences (for sentence-scoped negation)
+ * 2. Collect all entity spans from the note
+ * 3. Sort by position
+ * 4. Remove overlaps (greedy longest-match)
+ * 5. Return non-overlapping spans
+ */
+function extractEntities(note) {
+  const lower = note.toLowerCase();
+  const sentences = splitSentences(lower);
+  let allSpans = [];
+
+  // Named entity recognition — diagnoses
+  for (const dx of DIAGNOSES) {
+    allSpans.push(...findSpans(note, lower, dx.terms, 'dx', { icd: dx.icd, desc: dx.desc, conf: dx.conf }, sentences));
+  }
+
+  // Named entity recognition — medications
+  for (const med of MEDICATIONS) {
+    allSpans.push(...findSpans(note, lower, [med], 'med', {}, sentences));
+  }
+
+  // Named entity recognition — procedures
+  for (const proc of PROCEDURES) {
+    allSpans.push(...findSpans(note, lower, proc.terms, 'proc', { label: proc.label }, sentences));
+  }
+
+  // Sort by start position (longest terms tend to win in ties since they were listed first)
+  allSpans.sort((a, b) => a.start - b.start || b.end - a.end);
+
+  // Greedy overlap removal — keep first span at each position
+  const result = [];
+  let cursor = 0;
+  for (const span of allSpans) {
+    if (span.start >= cursor) {
+      result.push(span);
+      cursor = span.end;
+    }
+  }
+  return result;
+}
+
+// ─── Rendering functions ───────────────────────────────────────────────────────
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Build the annotated note HTML with inline <mark> highlights */
+function buildAnnotatedHtml(note, spans) {
+  let html = '';
+  let pos = 0;
+  for (const s of spans) {
+    html += escapeHtml(note.substring(pos, s.start));
+    const cls = s.negated ? 'neg' : s.type;
+    const title = `${s.type.toUpperCase()}${s.icd ? ' — ' + s.icd : ''}${s.negated ? ' (negated)' : ''}`;
+    html += `<mark class="${cls}" title="${title}">${escapeHtml(s.display)}</mark>`;
+    pos = s.end;
+  }
+  html += escapeHtml(note.substring(pos));
+  return html;
+}
+
+/** Build entity tag chips */
+function buildEntityHtml(spans) {
+  return spans.map(s => {
+    const tagCls = s.negated ? 'tag-neg' : `tag-${s.type}`;
+    const dotCls = s.negated ? 'dot-neg' : `dot-${s.type}`;
+    return `<span class="entity-tag ${tagCls}">
+      <span class="dot ${dotCls}"></span>
+      ${escapeHtml(s.display)}
+      ${s.negated ? '<span class="neg-badge">negated</span>' : ''}
+    </span>`;
+  }).join('');
+}
+
+/** Build ICD-10 suggestion rows (confirmed diagnoses only) */
+function buildIcdHtml(spans) {
+  const seen = new Set();
+  let html = '';
+  for (const s of spans) {
+    if (s.type === 'dx' && s.icd && !s.negated && !seen.has(s.icd)) {
+      seen.add(s.icd);
+      html += `<div class="icd-row">
+        <span class="icd-code">${s.icd}</span>
+        <span class="icd-desc">${escapeHtml(s.desc)}</span>
+        <span class="icd-conf">${s.conf}%
+          <span class="conf-bar-wrap"><span class="conf-bar" style="width:${s.conf}%"></span></span>
+        </span>
+      </div>`;
+    }
+  }
+  return html || '<div style="color:#aaa;font-size:13px;">No confirmed diagnoses to map</div>';
+}
+
+// ─── UI event handlers ─────────────────────────────────────────────────────────
+
+function loadSample(key) {
+  document.getElementById('note-input').value = SAMPLES[key];
+}
+
+function clearAll() {
+  document.getElementById('note-input').value = '';
+  document.getElementById('results-area').style.display = 'none';
+  document.getElementById('empty-state').style.display = 'none';
+}
+
+function runNLP() {
+  const note = document.getElementById('note-input').value.trim();
+  if (!note) return;
+
+  const spans = extractEntities(note);
+
+  if (spans.length === 0) {
+    document.getElementById('results-area').style.display = 'none';
+    document.getElementById('empty-state').style.display = 'block';
+    return;
+  }
+
+  const dx    = spans.filter(s => s.type === 'dx');
+  const med   = spans.filter(s => s.type === 'med');
+  const proc  = spans.filter(s => s.type === 'proc');
+
+  document.getElementById('stat-dx').textContent   = dx.length;
+  document.getElementById('stat-med').textContent  = med.length;
+  document.getElementById('stat-proc').textContent = proc.length;
+
+  document.getElementById('annotated-text').innerHTML = buildAnnotatedHtml(note, spans);
+  document.getElementById('entity-list').innerHTML    = buildEntityHtml(spans);
+  document.getElementById('icd-list').innerHTML       = buildIcdHtml(spans);
+
+  document.getElementById('results-area').style.display = 'block';
+  document.getElementById('empty-state').style.display  = 'none';
+}
+</script>
+</body>
+</html>
